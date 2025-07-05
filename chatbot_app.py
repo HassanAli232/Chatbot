@@ -2,7 +2,8 @@ import streamlit as st
 import os
 from openai import OpenAI
 from dotenv import load_dotenv
-from RAG_helper_functions import get_best_road_match, get_road_context, embed_texts, get_roads_context
+from RAG_helper_functions import get_roads_context
+from road_vector_index import RoadVectorDB
 from geojosn_reader import GeoRoadReader
 
 # === Debug display helper ===
@@ -19,8 +20,12 @@ def startup():
     reader = GeoRoadReader(data_dir="data")
     road_info = reader.get_roads_metadata()
     available_roads = list(set(r["road"] for r in road_info))
-    available_roads_embeddings = embed_texts(available_roads, client)
-    return client, reader, road_info, available_roads, available_roads_embeddings
+
+    # Build FAISS vector DB
+    vector_db = RoadVectorDB()
+    vector_db.build_index(available_roads, client)
+
+    return client, reader, road_info, available_roads, vector_db
 
 
 # === Static system prompt ===
@@ -57,22 +62,17 @@ All information about the roads should be based on the following road contexts:
 """.strip()
 
 
-
 # === Main Chat Handling ===
-def handle_user_prompt(prompt, client, reader, available_roads, roads_embeddings, base_prompt):
-    
-    # Adding user message to chat history.
+def handle_user_prompt(prompt, client, reader, available_roads, vector_db, base_prompt):
     st.chat_message("user").markdown(prompt)
     st.session_state.messages.append({"role": "user", "content": prompt})
 
-    # Find the best road match for the user's prompt
-    matched = get_best_road_match(prompt, available_roads, roads_embeddings, client)
+    # Find the best road match using vector DB
+    matched = vector_db.search(prompt, client)
     road_context = ""
-    
-    # printDebug("available_roads", sorted(list(set(available_roads))) or "No roads available.")
+
     printDebug("Matched Roads", matched or "No roads matched.")
 
-    # If roads was matched, get their contexts
     if matched:
         road_context = get_roads_context(matched, reader=reader)
     else:
@@ -82,8 +82,6 @@ def handle_user_prompt(prompt, client, reader, available_roads, roads_embeddings
 
     final_system_prompt = base_prompt + "\n\n" + road_context
 
-    
-    # Prepare full message history for OpenAI API
     messages = [{"role": "system", "content": final_system_prompt}] + st.session_state.messages
 
     try:
@@ -103,21 +101,18 @@ def handle_user_prompt(prompt, client, reader, available_roads, roads_embeddings
 if __name__ == "__main__":
     st.set_page_config(page_title="Riyadh Roads Chatbot", page_icon="🚗")
 
-    # Load resources and initialize
-    client, reader, road_info, available_roads, roads_embeddings = startup()
+    client, reader, road_info, available_roads, vector_db = startup()
     base_system_prompt = build_base_prompt(available_roads)
-    
-    # === Streamlit UI ===
+
     st.title("Riyadh Roads Chatbot")
 
     if "messages" not in st.session_state:
         st.session_state.messages = []
 
-    # Display chat messages
     for msg in st.session_state.messages:
         st.chat_message(msg["role"]).markdown(msg["content"])
 
     prompt = st.chat_input("Ask me about Riyadh's roads:")
-    
+
     if prompt:
-        handle_user_prompt(prompt, client, reader, available_roads, roads_embeddings, base_system_prompt)
+        handle_user_prompt(prompt, client, reader, available_roads, vector_db, base_system_prompt)
