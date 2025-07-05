@@ -16,7 +16,9 @@ def embed_texts(texts, client):
     return embeddings
 
 
-def get_best_road_match(user_input, available_roads, available_roads_embeddings, client):
+import numpy as np
+
+def get_best_road_match(user_input, available_roads, available_roads_embeddings, client, top_k=3, threshold=0.6):
     # Embed the user input
     response = client.embeddings.create(
         input=[user_input],
@@ -24,24 +26,40 @@ def get_best_road_match(user_input, available_roads, available_roads_embeddings,
     )
     user_embedding = response.data[0].embedding
 
-    # Compute cosine similarity between user_embedding and all road embeddings
+    # Compute cosine similarity
     def cosine_sim(a, b):
         return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
 
     similarities = [cosine_sim(user_embedding, emb) for emb in available_roads_embeddings]
 
-    # Get index of best match
-    best_idx = int(np.argmax(similarities))
-    best_score = similarities[best_idx]
+    # Sort indices by similarity (descending)
+    sorted_indices = np.argsort(similarities)[::-1]
 
-    # You can set a threshold to avoid weak matches
-    threshold = 0.7
-    if best_score >= threshold:
-        return [available_roads[best_idx]]
-    else:
-        return []
+    # Collect top matches that meet the threshold
+    matches = [
+        available_roads[i]
+        for i in sorted_indices[:top_k]
+        if similarities[i] >= threshold
+    ]
+
+    return matches
 
 
+def get_roads_context(roads_names, reader: GeoRoadReader):
+    """
+    Get context for all available roads.
+    Returns a dictionary mapping road names to their context summaries.
+    """
+    road_contexts = {}
+    for road in roads_names:
+        context = get_road_context(road, reader)
+        if context:
+            road_contexts[road] = context
+    
+    road_contexts = f"\n\nThe user might be referring to one of the roads \"{roads_names}\". Here is the known data:\n\n{road_contexts}"
+
+    
+    return road_contexts
 
 def get_road_context(road_name, reader: GeoRoadReader):
     import json

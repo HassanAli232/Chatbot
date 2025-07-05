@@ -2,7 +2,7 @@ import streamlit as st
 import os
 from openai import OpenAI
 from dotenv import load_dotenv
-from RAG_helper_functions import get_best_road_match, get_road_context, embed_texts
+from RAG_helper_functions import get_best_road_match, get_road_context, embed_texts, get_roads_context
 from geojosn_reader import GeoRoadReader
 
 # === Debug display helper ===
@@ -18,7 +18,7 @@ def startup():
     client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
     reader = GeoRoadReader(data_dir="data")
     road_info = reader.get_roads_metadata()
-    available_roads = [r["road"] for r in road_info]
+    available_roads = list(set(r["road"] for r in road_info))
     available_roads_embeddings = embed_texts(available_roads, client)
     return client, reader, road_info, available_roads, available_roads_embeddings
 
@@ -36,8 +36,10 @@ Your job is to:
     - Your identity and purpose
     - Your knowledge and limitations as a roads assistant
 - If the user asks who you are, what you know, how you can help, or why you exist, explain that you are a roads assistant designed to help with available roads in Riyadh, and provide some examples.
-- If the user asks about anything outside the scope (like sports, news, or weather), politely reject the question in *the user's prompt language*, using this phrase:
+- If the user asks about anything outside your job (like sports, news, or weather), politely reject the question, using this phrase:
   *Sorry, I can only help you with available roads.*
+- If the user does **not specify a road**, you may choose any known road from the list to use as an example or to illustrate a general point.
+- You may also use general trends across all roads if the user asks for statistics or examples about "roads" in general.
 
 ⚠️ Rules:
 - Never make up roads that are not listed.
@@ -45,12 +47,13 @@ Your job is to:
 - If the user asks about a road not in the dataset, politely inform them that you don't know the specified road.
 
 Notes:
-- Roads names do not need to be exactly as they appear in the dataset, but should be close enough to match.
+- Answer any question related to the roads as long as it is coming from the road context.
 - You are not required to say who you are unless the user asks.
 
 The available roads are:
 {road_list_str}
 """.strip()
+
 
 
 # === Main Chat Handling ===
@@ -64,13 +67,12 @@ def handle_user_prompt(prompt, client, reader, available_roads, roads_embeddings
     matched = get_best_road_match(prompt, available_roads, roads_embeddings, client)
     road_context = ""
     
-    # If a road was matched, get its context
+    # printDebug("available_roads", sorted(list(set(available_roads))) or "No roads available.")
+    printDebug("Matched Roads", matched or "No roads matched.")
+
+    # If roads was matched, get their contexts
     if matched:
-        context_data = get_road_context(matched[0], reader=reader)
-        if context_data:
-            road_context = f"\n\nThe user might be referring to the road \"{matched[0]}\". Here is the known data:\n\n{context_data}"
-        else:
-            road_context = f"\n\nThe road \"{matched[0]}\" was matched but no data was found."
+        road_context = get_roads_context(matched, reader=reader)
     else:
         road_context = "\n\nNo matching road found for the user's prompt."
 
