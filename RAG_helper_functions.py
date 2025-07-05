@@ -1,11 +1,45 @@
-import difflib
-import json
-
 from geojosn_reader import GeoRoadReader
+import numpy as np
 
-# === RAG Helpers ===
-def get_best_road_match(user_input, available_roads):
-    return difflib.get_close_matches(user_input, available_roads, n=1)
+# Precompute embeddings for all available roads once (run once at startup)
+def embed_texts(texts, client):
+    embeddings = []
+    batch_size = 10  # or suitable batch size
+    for i in range(0, len(texts), batch_size):
+        batch = texts[i:i+batch_size]
+        response = client.embeddings.create(
+            input=batch,
+            model="text-embedding-ada-002"
+        )
+        batch_embeddings = [data.embedding for data in response.data]
+        embeddings.extend(batch_embeddings)
+    return embeddings
+
+
+def get_best_road_match(user_input, available_roads, available_roads_embeddings, client):
+    # Embed the user input
+    response = client.embeddings.create(
+        input=[user_input],
+        model="text-embedding-ada-002"
+    )
+    user_embedding = response.data[0].embedding
+
+    # Compute cosine similarity between user_embedding and all road embeddings
+    def cosine_sim(a, b):
+        return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
+
+    similarities = [cosine_sim(user_embedding, emb) for emb in available_roads_embeddings]
+
+    # Get index of best match
+    best_idx = int(np.argmax(similarities))
+    best_score = similarities[best_idx]
+
+    # You can set a threshold to avoid weak matches
+    threshold = 0.7
+    if best_score >= threshold:
+        return [available_roads[best_idx]]
+    else:
+        return []
 
 
 

@@ -2,28 +2,31 @@ import streamlit as st
 import os
 from openai import OpenAI
 from dotenv import load_dotenv
-from RAG_helper_functions import get_best_road_match, get_road_context
+from RAG_helper_functions import get_best_road_match, get_road_context, embed_texts
 from geojosn_reader import GeoRoadReader
 
+# === Debug display helper ===
 def printDebug(title, content):
-    # Show the road context (debugging or developer view)
     with st.expander("🔍 Debug: " + title):
         st.code(content, language="markdown")
 
-# Load environment variables
-load_dotenv()
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+# === Load once at startup ===
+@st.cache_resource
+def startup():
+    load_dotenv()
+    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+    reader = GeoRoadReader(data_dir="data")
+    road_info = reader.get_roads_metadata()
+    available_roads = [r["road"] for r in road_info]
 
-# Load road info
-reader = GeoRoadReader(data_dir="data")
-road_info = reader.get_roads_metadata()
-available_roads = [r["road"] for r in road_info]
+    available_roads_embeddings = embed_texts(available_roads, client)
 
-# Create road list string for prompt
-road_list_str = "\n".join(f"- {r}" for r in sorted(set(available_roads)))
+    return client, reader, road_info, available_roads, available_roads_embeddings
 
+client, reader, road_info, available_roads, roads_embeddings = startup()
 
 # === Static system prompt ===
+road_list_str = "\n".join(f"- {r}" for r in sorted(set(available_roads)))
 base_system_prompt = f"""
 You are a helpful Riyadh roads assistant trained only on a limited set of roads.
 
@@ -39,7 +42,7 @@ Your job is to:
 
 ⚠️ Rules:
 - Never make up roads that are not listed.
-- Make sure the respnse is typed clearly.
+- Make sure the response is typed clearly.
 - If the user asks about a road not in the dataset, politely inform them that you don't know the specified road.
 
 Notes:
@@ -49,7 +52,6 @@ Notes:
 The available roads are:
 {road_list_str}
 """
-
 
 # === Streamlit UI ===
 st.title("Riyadh Roads Chatbot")
@@ -68,8 +70,8 @@ if prompt:
     st.chat_message("user").markdown(prompt)
     st.session_state.messages.append({"role": "user", "content": prompt})
 
-    # === RAG: try to retrieve relevant road ===
-    matched = get_best_road_match(prompt, available_roads=available_roads)
+    # === RAG retrieval ===
+    matched = get_best_road_match(prompt, available_roads, roads_embeddings, client)
     road_context = ""
 
     if matched:
@@ -78,13 +80,11 @@ if prompt:
             road_context = f"\n\nThe user might be referring to the road \"{matched[0]}\". Here is the known data:\n\n{context_data}"
         else:
             road_context = f"\n\nThe road \"{matched[0]}\" was matched but no data was found."
-    
-    # Show the road context (debugging or developer view)
-    with st.expander("🔍 Debug: Road Context"):
-        st.code(road_context or "No road context found.", language="markdown")
-        # st.code(context_data, language="markdown")
 
-    # === Compose final system message ===
+    # Optional debug display
+    printDebug("Road Context", road_context or "No context found.")
+
+    # Compose full system prompt
     final_system_prompt = base_system_prompt + road_context
 
     messages = [
@@ -100,6 +100,7 @@ if prompt:
         reply = response.choices[0].message.content
         st.chat_message("assistant").markdown(reply)
         st.session_state.messages.append({"role": "assistant", "content": reply})
+
     except Exception as e:
         st.error("There was an error generating the response.")
         print(f"Error: {e}")
