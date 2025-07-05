@@ -52,6 +52,8 @@ Notes:
 
 The available roads are:
 {road_list_str}
+
+All information about the roads should be based on the following road contexts:
 """.strip()
 
 
