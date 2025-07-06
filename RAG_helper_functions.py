@@ -2,12 +2,18 @@ from geojosn_reader import GeoRoadReader
 
 
 def get_roads_context(roads_names : list, reader: GeoRoadReader, versions: bool = False):
+
+    """
+    return a string with the context of the roads
+    """
     road_contexts = {}
+
     for road in roads_names:
+        
         context = get_road_context(road, reader, versions=versions)
         if context:
-            # road_contexts[road] = context
             road_contexts.update(context)
+            
     return f"\n\nThe user might be referring to one of the roads \"{roads_names}\". Here is the known data:\n\n{road_contexts}"
 
 
@@ -15,12 +21,12 @@ def get_road_context(road_name, reader: GeoRoadReader, versions: bool = False):
     import json
 
     matches = reader.find_versions_for_road(road_name)
+    
     if not matches:
         return None
 
     if not versions:
         # If versions are not requested, return the latest version only
-        # latest = sorted(matches, key=lambda m: m["year"], reverse=True)[0]
         matches = [sorted(matches, key=lambda m: m["year"], reverse=True)[0]]
     else:
         # If versions are requested, return all versions
@@ -28,7 +34,6 @@ def get_road_context(road_name, reader: GeoRoadReader, versions: bool = False):
     
     summaries = {}
     
-    # paths = [m["path"] for m in matches]
     
     for match in matches:
         path = match["path"]
@@ -37,6 +42,7 @@ def get_road_context(road_name, reader: GeoRoadReader, versions: bool = False):
 
         gdf = reader.read_geojson(path)
 
+        # if empty GeoDataFrame, skip to next match.
         if gdf.empty:
             continue
 
@@ -48,10 +54,14 @@ def get_road_context(road_name, reader: GeoRoadReader, versions: bool = False):
         weighted_harmonic_speed = 0
         weighted_avg_time = 0
 
+        # Compute weighted averages.
         for _, row in gdf.iterrows():
+            
             results = row.get("segmentTimeResults")
+            
             if isinstance(results, str):
                 results = json.loads(results)
+            
             if not isinstance(results, list) or len(results) == 0:
                 continue
 
@@ -71,16 +81,14 @@ def get_road_context(road_name, reader: GeoRoadReader, versions: bool = False):
             total_samples += samples
             total_distance += row.get("distance", 0)
 
-        if total_samples == 0:
-            return f"📍 Road: {road_name} ({year})\nNo valid data found."
 
-        avg_speed_limit = weighted_speed_limit / total_samples
-        avg_speed = weighted_avg_speed / total_samples
-        median_speed = weighted_median_speed / total_samples
-        harmonic_speed = weighted_harmonic_speed / total_samples
-        avg_time = weighted_avg_time / total_samples
-
-        summary = f"""
+        if total_samples != 0:
+            avg_speed_limit = weighted_speed_limit / total_samples
+            avg_speed = weighted_avg_speed / total_samples
+            median_speed = weighted_median_speed / total_samples
+            harmonic_speed = weighted_harmonic_speed / total_samples
+            avg_time = weighted_avg_time / total_samples
+            summary = f"""
 📍 Road: {road_name} ({year})
 - 📏 Total Distance: {total_distance/1000:.2f} km
 - 🚘 Segments: {len(gdf)}
@@ -91,8 +99,10 @@ def get_road_context(road_name, reader: GeoRoadReader, versions: bool = False):
 - 🧮 Harmonic Speed: {harmonic_speed:.1f} km/h
 - ⏱️ Avg Travel Time: {avg_time:.2f} sec
 """.strip()
+            
+        else:
+            summary = f"📍 Road: {road_name} ({year})\nNo valid data found."
 
         summaries[road_name + "," + str(year)] = summary
-        # summaries.append(summary)
 
     return summaries

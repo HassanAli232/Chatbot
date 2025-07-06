@@ -4,12 +4,44 @@ from pathlib import Path
 class GeoRoadReader:
     def __init__(self, data_dir="data"):
         self.data_dir = data_dir
-        self.all_geojson_files = set()
+        self._geojson_files_paths = set()
         self.road_metadata = []
 
         # Load all GeoJSON files and extract metadata on initialization
-        self._read_all_geojson_files()
+        self._read_geojson_files_paths()
         self._extract_road_metadata()
+
+    def _read_geojson_files_paths(self):
+        """Recursively find all GeoJSON files under year directories."""
+        self._geojson_files_paths = set(Path(self.data_dir).rglob("*.geojson"))
+
+    def _extract_road_metadata(self):
+        """
+        Extract metadata from full paths:
+        - 'road': cleaned name of the road (from filename)
+        - 'year': from directory name like 'Jan 2022'
+        - 'path': full path to the file
+        """
+        roads = []
+        for path in self._geojson_files_paths:
+            
+            parts = Path(path).parts
+            
+            if len(parts) >= 3:
+                year_dir = parts[-2]  # e.g., 'Jan 2022'
+
+                filename = Path(path).stem  # e.g., 'Abu-Baker Al-Siddiq Rd NB_9'
+
+                road_name = filename.split("_")[0]  # Clean up the road name
+                
+                roads.append({
+                    "road": road_name.strip(),
+                    "year": year_dir,
+                    "path": str(path)
+                })
+        
+        self.road_metadata = roads
+
 
     def read_geojson(self, path):
         """Reads and cleans a GeoJSON file into a GeoDataFrame."""
@@ -59,34 +91,10 @@ class GeoRoadReader:
         else:
             print("\n✅ No geometry differences found.")
 
-    def _read_all_geojson_files(self):
-        """Recursively find all GeoJSON files under year directories."""
-        self.all_geojson_files = set(Path(self.data_dir).rglob("*.geojson"))
 
-    def _extract_road_metadata(self):
-        """
-        Extract metadata from full paths:
-        - 'road': cleaned name of the road (from filename)
-        - 'year': from directory name like 'Jan 2022'
-        - 'path': full path to the file
-        """
-        roads = []
-        for path in self.all_geojson_files:
-            parts = Path(path).parts
-            if len(parts) >= 3:
-                year_dir = parts[-2]  # e.g., 'Jan 2022'
-                filename = Path(path).stem  # e.g., 'Abu-Baker Al-Siddiq Rd NB_9'
-                road_name = filename.replace("_", " ").split(" NB")[0]
-                roads.append({
-                    "road": road_name.strip(),
-                    "year": year_dir,
-                    "path": str(path)
-                })
-        self.road_metadata = roads
-
-    def get_geojson_files(self):
+    def get_geojson_files_paths(self):
         """Return all GeoJSON file paths."""
-        return self.all_geojson_files.copy()
+        return self._geojson_files_paths.copy()
     
     def get_roads_metadata(self):
         """Return all road metadata extracted from GeoJSON files."""
@@ -110,10 +118,14 @@ class GeoRoadReader:
         for path in updated_files:
             if str(path) not in current_paths:
                 parts = Path(path).parts
+                
                 if len(parts) >= 3:
                     year_dir = parts[-2]
+
                     filename = Path(path).stem
-                    road_name = filename.replace("_", " ").split(" NB")[0]
+
+                    road_name = filename.split("_")[0]  # Clean up the road name
+
                     new_metadata.append({
                         "road": road_name.strip(),
                         "year": year_dir,
@@ -121,4 +133,4 @@ class GeoRoadReader:
                     })
 
         self.road_metadata.extend(new_metadata)
-        self.all_geojson_files = list({*self.all_geojson_files, *updated_files})
+        self._geojson_files_paths = list({*self._geojson_files_paths, *updated_files})
