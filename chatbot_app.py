@@ -54,6 +54,7 @@ Your job is to:
 Notes:
 - Answer any question related to the roads as long as it is coming from the road context.
 - You are not required to say who you are unless the user asks.
+- Each road has different versions based on the year, so always use the latest version of that road unless the user specifys.
 
 The available roads are:
 {road_list_str}
@@ -62,8 +63,20 @@ All information about the roads should be based on the following road contexts:
 """.strip()
 
 
+def check_year(prompt):
+    """
+    Check if the user prompt contains a year.
+    Returns True if a year is mentioned, otherwise False.
+    """
+    import re
+
+    prompt = prompt.strip().lower()
+    # Check for years in the format YYYY or YY
+    return bool(re.search(r'\b(20\d{2}|[0-9]{2})\b', prompt)) or any(word in prompt for word in ["year", "versions", "version", "years"])
+
+
 # === Main Chat Handling ===
-def handle_user_prompt(prompt, client, reader, available_roads, vector_db, base_prompt):
+def handle_user_prompt(prompt, client, reader, vector_db, base_prompt):
     st.chat_message("user").markdown(prompt)
     st.session_state.messages.append({"role": "user", "content": prompt})
 
@@ -73,8 +86,11 @@ def handle_user_prompt(prompt, client, reader, available_roads, vector_db, base_
 
     printDebug("Matched Roads", matched or "No roads matched.")
 
+    require_year = check_year(prompt)
+    printDebug("Require Year", str(require_year))
+
     if matched:
-        road_context = get_roads_context(matched, reader=reader)
+        road_context = get_roads_context(matched, reader=reader, versions=require_year)
     else:
         road_context = "\n\nNo matching road found for the user's prompt."
 
@@ -115,4 +131,4 @@ if __name__ == "__main__":
     prompt = st.chat_input("Ask me about Riyadh's roads:")
 
     if prompt:
-        handle_user_prompt(prompt, client, reader, available_roads, vector_db, base_system_prompt)
+        handle_user_prompt(prompt, client, reader, vector_db, base_system_prompt)
