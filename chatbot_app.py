@@ -106,7 +106,7 @@ def handle_user_prompt(prompt, client, reader, vector_db, base_prompt):
 
     # Prepare the messages for the OpenAI API
     messages = [{"role": "system", "content": final_system_prompt}] + st.session_state.messages
-    printDebug("final_system_prompt", final_system_prompt)
+    # printDebug("final_system_prompt", final_system_prompt)
     try:
         response = client.chat.completions.create(
             model="gpt-3.5-turbo",
